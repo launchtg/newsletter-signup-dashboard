@@ -1,9 +1,33 @@
-const fs = require('fs');
-const path = require('path');
+const https = require('https');
 
-const DATA_FILE = path.join(__dirname, '../data.json');
-const SIGNUP_LOG = '/root/.openclaw/workspace/logs/newsletter-signups.json';
-const TRACKING_LOG = '/root/.openclaw/workspace/logs/signup-tracking.json';
+// Store data on VPS instead of Vercel
+const VPS_API = 'http://209.182.213.100:8080/api';
+
+function makeVPSRequest(path, method = 'GET', data = null) {
+    return new Promise((resolve, reject) => {
+        const url = new URL(VPS_API + path);
+        const options = {
+            hostname: url.hostname,
+            port: url.port,
+            path: url.pathname,
+            method: method,
+            headers: { 'Content-Type': 'application/json' }
+        };
+        
+        const req = require('http').request(options, (res) => {
+            let body = '';
+            res.on('data', chunk => { body += chunk; });
+            res.on('end', () => {
+                try { resolve(JSON.parse(body)); }
+                catch { resolve(body); }
+            });
+        });
+        
+        req.on('error', reject);
+        if (data) req.write(JSON.stringify(data));
+        req.end();
+    });
+}
 
 function loadExistingSignups() {
     const statusMap = {};

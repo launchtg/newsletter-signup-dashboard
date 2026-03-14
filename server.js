@@ -72,25 +72,16 @@ const server = http.createServer((req, res) => {
         return;
     }
     
-    // API: Get newsletters
-    if (req.url === '/api/newsletters' && req.method === 'GET') {
-        if (!fs.existsSync(DATA_FILE)) {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ newsletters: [], statusMap: loadExistingSignups() }));
-            return;
-        }
-        
-        const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-        // Merge with existing signup statuses
-        data.statusMap = { ...loadExistingSignups(), ...data.statusMap };
-        
+    // API: Get status from logs
+    if (req.url === '/api/status' && req.method === 'GET') {
+        const statusMap = loadExistingSignups();
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(data));
+        res.end(JSON.stringify({ statusMap }));
         return;
     }
     
     // API: Save newsletters
-    if (req.url === '/api/newsletters' && req.method === 'POST') {
+    if (req.url === '/api/save' && req.method === 'POST') {
         let body = '';
         req.on('data', chunk => { body += chunk; });
         req.on('end', () => {
@@ -105,6 +96,22 @@ const server = http.createServer((req, res) => {
                 res.end(JSON.stringify({ error: 'Invalid data' }));
             }
         });
+        return;
+    }
+    
+    // API: Get newsletters (legacy)
+    if (req.url === '/api/newsletters' && req.method === 'GET') {
+        if (!fs.existsSync(DATA_FILE)) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ newsletters: [], statusMap: loadExistingSignups() }));
+            return;
+        }
+        
+        const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+        data.statusMap = { ...loadExistingSignups(), ...data.statusMap };
+        
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(data));
         return;
     }
     

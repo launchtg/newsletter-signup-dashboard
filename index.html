@@ -358,19 +358,33 @@
         let newsletters = [];
         let statusMap = {};
 
-        // Load existing data from API
+        // Load existing data from localStorage and VPS
         async function loadData() {
-            try {
-                const response = await fetch('/api/newsletters');
-                if (response.ok) {
-                    const data = await response.json();
+            // Load from localStorage first (uploaded data)
+            const stored = localStorage.getItem('newsletters');
+            if (stored) {
+                try {
+                    const data = JSON.parse(stored);
                     newsletters = data.newsletters || [];
                     statusMap = data.statusMap || {};
-                    updateUI();
+                } catch (e) {
+                    console.error('Error loading from localStorage:', e);
+                }
+            }
+            
+            // Load signup status from VPS
+            try {
+                const response = await fetch('http://209.182.213.100:8080/api/status');
+                if (response.ok) {
+                    const vpsStatus = await response.json();
+                    // Merge status from VPS
+                    Object.assign(statusMap, vpsStatus.statusMap || {});
                 }
             } catch (e) {
-                console.log('No existing data');
+                console.log('Could not load VPS status');
             }
+            
+            updateUI();
         }
 
         // File upload handling
@@ -595,11 +609,23 @@
         }
 
         async function saveData() {
-            await fetch('/api/newsletters', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ newsletters, statusMap })
-            });
+            // Save to localStorage
+            localStorage.setItem('newsletters', JSON.stringify({ 
+                newsletters, 
+                statusMap,
+                lastUpdated: new Date().toISOString()
+            }));
+            
+            // Also save to VPS for backup
+            try {
+                await fetch('http://209.182.213.100:8080/api/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ newsletters, statusMap })
+                });
+            } catch (e) {
+                console.log('VPS save failed (continuing anyway)');
+            }
         }
 
         async function startAutomation() {
