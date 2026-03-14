@@ -348,6 +348,13 @@
                     </svg>
                     Start Automated Signups
                 </button>
+                <button class="btn" onclick="loadData()" style="background: #4a4a4a;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 6px;">
+                        <polyline points="23 4 23 10 17 10"/>
+                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                    </svg>
+                    Refresh Data
+                </button>
                 <button class="btn" onclick="clearData()" style="background: #ff4444;">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 6px;">
                         <polyline points="3 6 5 6 21 6"/>
@@ -476,23 +483,33 @@
             let offset = 0;
             const limit = 1000;
             let hasMore = true;
+            let pageCount = 0;
+            
+            console.log('Fetching newsletters from database...');
             
             while (hasMore) {
+              pageCount++;
               let path = `/rest/v1/newsletters?select=*&order=created_at.desc&limit=${limit}&offset=${offset}`;
               if (status) {
                 path += `&status=eq.${status}`;
               }
               
+              console.log(`Fetching page ${pageCount}: offset=${offset}, limit=${limit}`);
               const results = await this.request(path, 'GET');
+              console.log(`Page ${pageCount} returned ${results.length} records`);
+              
               allResults = allResults.concat(results);
               
               if (results.length < limit) {
+                console.log(`Page ${pageCount} returned less than ${limit} records - done fetching`);
                 hasMore = false;
               } else {
                 offset += limit;
+                console.log(`More pages available, continuing with offset ${offset}`);
               }
             }
             
+            console.log(`Total fetched: ${allResults.length.toLocaleString()} newsletters across ${pageCount} pages`);
             return allResults;
           }
 
@@ -522,7 +539,16 @@
         async function loadData() {
             try {
                 console.log('Loading from Supabase...');
+                
+                // Show loading indicator in stats
+                document.getElementById('totalCount').textContent = '...';
+                document.getElementById('successCount').textContent = '...';
+                document.getElementById('pendingCount').textContent = '...';
+                document.getElementById('failedCount').textContent = '...';
+                
                 newsletters = await supabase.getNewsletters();
+                
+                console.log(`Loaded ${newsletters.length.toLocaleString()} newsletters from Supabase`);
                 
                 // Build status map
                 statusMap = {};
@@ -530,11 +556,11 @@
                     statusMap[n.url] = n.status || 'pending';
                 });
                 
-                console.log(`Loaded ${newsletters.length} newsletters from Supabase`);
+                console.log(`Status breakdown: ${Object.keys(statusMap).length} total`);
                 updateUI();
             } catch (e) {
                 console.error('Error loading from Supabase:', e);
-                alert('⚠️ Could not connect to database. Check console for details.');
+                alert('ERROR: Could not connect to database. ' + e.message);
             }
         }
 
