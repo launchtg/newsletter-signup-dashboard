@@ -409,23 +409,55 @@
         function handleFile(file) {
             if (!file) return;
 
+            console.log('File selected:', file.name, file.size, 'bytes');
+            
+            // Show loading indicator
+            const uploadArea = document.getElementById('uploadArea');
+            uploadArea.innerHTML = '<div style="font-size: 48px; margin-bottom: 16px;">⏳</div><h3>Processing CSV file...</h3>';
+
             const reader = new FileReader();
-            reader.onload = (e) => {
-                const text = e.target.result;
-                parseCSV(text);
+            reader.onload = async (e) => {
+                try {
+                    const text = e.target.result;
+                    console.log('File loaded, length:', text.length);
+                    await parseCSV(text);
+                } catch (error) {
+                    console.error('Error processing file:', error);
+                    alert('❌ Error processing file: ' + error.message);
+                    resetUploadArea();
+                }
+            };
+            reader.onerror = (e) => {
+                console.error('File read error:', e);
+                alert('❌ Could not read file');
+                resetUploadArea();
             };
             reader.readAsText(file);
         }
+        
+        function resetUploadArea() {
+            document.getElementById('uploadArea').innerHTML = `
+                <div style="font-size: 48px; margin-bottom: 16px;">📄</div>
+                <h3 style="margin-bottom: 8px;">Drop CSV file here or click to upload</h3>
+                <p style="color: #718096; font-size: 14px;">Accepts CSV with URL column (36,000 newsletters from Fiverr)</p>
+            `;
+        }
 
-        function parseCSV(text) {
+        async function parseCSV(text) {
+            console.log('Starting CSV parse...');
+            
             const lines = text.split('\n').filter(l => l.trim());
+            console.log('Total lines:', lines.length);
+            
             if (lines.length < 2) {
                 alert('CSV file appears to be empty');
+                resetUploadArea();
                 return;
             }
 
             // Parse headers
             const headers = parseCSVLine(lines[0]);
+            console.log('Headers found:', headers.length, headers.slice(0, 10));
             
             // Find URL column (check multiple possible names)
             const urlIndex = headers.findIndex(h => {
@@ -438,15 +470,28 @@
             });
             
             if (urlIndex === -1) {
-                alert('Could not find domain/URL column in CSV. Found columns: ' + headers.join(', '));
+                alert('Could not find domain/URL column in CSV.\n\nFound columns:\n' + headers.slice(0, 20).join('\n'));
+                resetUploadArea();
                 return;
             }
+
+            console.log('URL column index:', urlIndex, 'name:', headers[urlIndex]);
 
             newsletters = [];
             let parsed = 0;
             let skipped = 0;
 
+            // Show progress
+            const uploadArea = document.getElementById('uploadArea');
+            
             for (let i = 1; i < lines.length; i++) {
+                // Update progress every 1000 lines
+                if (i % 1000 === 0) {
+                    uploadArea.innerHTML = `<div style="font-size: 48px; margin-bottom: 16px;">⏳</div>
+                        <h3>Processing... ${i.toLocaleString()} / ${lines.length.toLocaleString()}</h3>`;
+                    await new Promise(r => setTimeout(r, 0)); // Allow UI update
+                }
+                
                 const cols = parseCSVLine(lines[i]);
                 if (cols.length < headers.length - 5) continue; // Skip malformed lines
                 
@@ -482,9 +527,10 @@
                     if (!value) return;
                     
                     // Map to Supabase columns
-                    if (header.toLowerCase() === 'company') contact.company = value;
-                    else if (header.toLowerCase() === 'employees') contact.employees = value;
-                    else if (header.toLowerCase() === 'country') contact.country = value;
+                    const lower = header.toLowerCase();
+                    if (lower === 'company') contact.company = value;
+                    else if (lower === 'employees') contact.employees = value;
+                    else if (lower === 'country') contact.country = value;
                     else contact.data[header] = value;
                 });
                 
@@ -496,20 +542,32 @@
             
             if (newsletters.length === 0) {
                 alert('No valid domains found in CSV');
+                resetUploadArea();
                 return;
             }
 
-            // Save to server
-            await saveData();
-            updateUI();
-            document.getElementById('startBtn').disabled = false;
-            
-            // Show detailed success message
-            const msg = `✅ Successfully loaded ${newsletters.length.toLocaleString()} newsletters!\n\n` +
-                       `Data stored in your browser.\n` +
-                       `Already signed up: ${Object.keys(statusMap).filter(k => statusMap[k] === 'success').length}\n` +
-                       `Ready for automation: ${newsletters.filter(n => !statusMap[n.url]).length}`;
-            alert(msg);
+            // Show saving progress
+            uploadArea.innerHTML = `<div style="font-size: 48px; margin-bottom: 16px;">💾</div>
+                <h3>Saving ${newsletters.length.toLocaleString()} newsletters to database...</h3>`;
+
+            // Save to Supabase
+            try {
+                await saveData();
+                
+                updateUI();
+                document.getElementById('startBtn').disabled = false;
+                resetUploadArea();
+                
+                // Show success message
+                const msg = `✅ Successfully loaded ${newsletters.length.toLocaleString()} newsletters!\n\n` +
+                           `Stored in Supabase database\n` +
+                           `Ready for automation!`;
+                alert(msg);
+            } catch (error) {
+                console.error('Save error:', error);
+                alert('❌ Error saving to database: ' + error.message);
+                resetUploadArea();
+            }
         }
 
         function parseCSVLine(line) {
@@ -626,15 +684,35 @@
             try {
                 console.log(`Saving ${newsletters.length} newsletters to Supabase...`);
                 
-                // Batch upload in chunks of 1000
-                const chunkSize = 1000;
+                const uploadArea = document.getElementById('uploadArea');
+                
+                // Batch upload in chunks of 500 (safer for large datasets)
+                const chunkSize = 500;
+                let savedCount = 0;
+                
                 for (let i = 0; i < newsletters.length; i += chunkSize) {
                     const chunk = newsletters.slice(i, i + chunkSize);
-                    await supabase.upsertNewsletters(chunk);
-                    console.log(`Saved ${Math.min(i + chunkSize, newsletters.length)}/${newsletters.length}`);
+                    
+                    try {
+                        await supabase.upsertNewsletters(chunk);
+                        savedCount += chunk.length;
+                        
+                        // Update progress
+                        const percent = ((savedCount / newsletters.length) * 100).toFixed(0);
+                        uploadArea.innerHTML = `<div style="font-size: 48px; margin-bottom: 16px;">💾</div>
+                            <h3>Saving to database... ${savedCount.toLocaleString()} / ${newsletters.length.toLocaleString()} (${percent}%)</h3>`;
+                        
+                        console.log(`Saved ${savedCount}/${newsletters.length}`);
+                        
+                        // Small delay to avoid rate limits
+                        await new Promise(r => setTimeout(r, 100));
+                    } catch (chunkError) {
+                        console.error(`Error saving chunk ${i}-${i+chunkSize}:`, chunkError);
+                        throw new Error(`Failed to save newsletters (chunk at ${savedCount}): ${chunkError.message}`);
+                    }
                 }
                 
-                console.log('✅ Save complete!');
+                console.log('✅ Save complete!', savedCount, 'newsletters saved');
             } catch (e) {
                 console.error('Error saving to Supabase:', e);
                 throw e;
