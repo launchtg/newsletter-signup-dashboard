@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Newsletter Signup Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #0a0a0a;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: #1a1a1a;
+            border-radius: 16px;
+            padding: 30px;
+            margin-bottom: 24px;
+            border: 1px solid #2a2a2a;
+        }
+
+        h1 {
+            font-size: 32px;
+            font-weight: 700;
+            color: #ffffff;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: #888888;
+            font-size: 16px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: #1a1a1a;
+            border-radius: 12px;
+            padding: 24px;
+            border: 1px solid #2a2a2a;
+        }
+
+        .stat-value {
+            font-size: 36px;
+            font-weight: 700;
+            color: #B4FF39;
+            margin-bottom: 4px;
+        }
+
+        .stat-label {
+            font-size: 14px;
+            color: #888888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .card {
+            background: #1a1a1a;
+            border-radius: 16px;
+            padding: 30px;
+            margin-bottom: 24px;
+            border: 1px solid #2a2a2a;
+        }
+
+        .card-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #ffffff;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .badge {
+            background: #B4FF39;
+            color: #0a0a0a;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .upload-area {
+            border: 2px dashed #2a2a2a;
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: #888888;
+        }
+
+        .upload-area:hover {
+            border-color: #B4FF39;
+            background: #1a1a1a;
+        }
+
+        .upload-area.dragover {
+            border-color: #B4FF39;
+            background: #1a1a1a;
+        }
+
+        .btn {
+            background: #B4FF39;
+            color: #0a0a0a;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            background: #a0e830;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(180, 255, 57, 0.4);
+        }
+
+        .btn-small {
+            padding: 8px 16px;
+            font-size: 12px;
+        }
+
+        .btn-danger {
+            background: #f56565;
+        }
+
+        .btn-danger:hover {
+            background: #e53e3e;
+        }
+
+        .newsletter-list {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .newsletter-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px;
+            border-bottom: 1px solid #2a2a2a;
+            transition: background 0.2s;
+        }
+
+        .newsletter-item:hover {
+            background: #252525;
+        }
+
+        .newsletter-info {
+            flex: 1;
+        }
+
+        .newsletter-name {
+            font-weight: 600;
+            color: #ffffff;
+            margin-bottom: 4px;
+        }
+
+        .newsletter-url {
+            font-size: 13px;
+            color: #888888;
+        }
+
+        .status {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-right: 12px;
+        }
+
+        .status-success {
+            background: #B4FF39;
+            color: #0a0a0a;
+        }
+
+        .status-pending {
+            background: #4a4a4a;
+            color: #ffffff;
+        }
+
+        .status-failed {
+            background: #ff4444;
+            color: #ffffff;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #2a2a2a;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 12px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: #B4FF39;
+            transition: width 0.3s;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+            border-bottom: 2px solid #2a2a2a;
+        }
+
+        .tab {
+            padding: 12px 24px;
+            background: none;
+            border: none;
+            font-size: 14px;
+            font-weight: 600;
+            color: #888888;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+        }
+
+        .tab.active {
+            color: #B4FF39;
+            border-bottom-color: #B4FF39;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        .icon {
+            width: 20px;
+            height: 20px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666666;
+        }
+
+        .empty-state svg {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📧 Newsletter Signup Dashboard</h1>
+            <p class="subtitle">Automated signup management for workjamlive@gmail.com</p>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value" id="totalCount">0</div>
+                <div class="stat-label">Total Newsletters</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="successCount">0</div>
+                <div class="stat-label">Signed Up</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="pendingCount">0</div>
+                <div class="stat-label">Pending</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="failedCount">0</div>
+                <div class="stat-label">Needs Human</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">
+                📂 Import Newsletter List
+            </div>
+            <div class="upload-area" id="uploadArea">
+                <div style="font-size: 48px; margin-bottom: 16px;">📄</div>
+                <h3 style="margin-bottom: 8px;">Drop CSV file here or click to upload</h3>
+                <p style="color: #718096; font-size: 14px;">Accepts CSV with URL column (36,000 newsletters from Fiverr)</p>
+                <input type="file" id="fileInput" accept=".csv,.txt">
+            </div>
+            <div style="margin-top: 16px; display: flex; gap: 12px;">
+                <button class="btn" onclick="document.getElementById('fileInput').click()">
+                    Choose File
+                </button>
+                <button class="btn" onclick="startAutomation()" id="startBtn" disabled>
+                    🚀 Start Automated Signups
+                </button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('all')">All Newsletters</button>
+                <button class="tab" onclick="switchTab('pending')">Pending</button>
+                <button class="tab" onclick="switchTab('success')">Signed Up</button>
+                <button class="tab" onclick="switchTab('failed')">Needs Human</button>
+            </div>
+
+            <div id="allTab" class="tab-content active">
+                <div class="newsletter-list" id="allList"></div>
+            </div>
+
+            <div id="pendingTab" class="tab-content">
+                <div class="newsletter-list" id="pendingList"></div>
+            </div>
+
+            <div id="successTab" class="tab-content">
+                <div class="newsletter-list" id="successList"></div>
+            </div>
+
+            <div id="failedTab" class="tab-content">
+                <div class="newsletter-list" id="failedList"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let newsletters = [];
+        let statusMap = {};
+
+        // Load existing data from API
+        async function loadData() {
+            try {
+                const response = await fetch('/api/newsletters');
+                if (response.ok) {
+                    const data = await response.json();
+                    newsletters = data.newsletters || [];
+                    statusMap = data.statusMap || {};
+                    updateUI();
+                }
+            } catch (e) {
+                console.log('No existing data');
+            }
+        }
+
+        // File upload handling
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            handleFile(e.dataTransfer.files[0]);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            handleFile(e.target.files[0]);
+        });
+
+        function handleFile(file) {
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const text = e.target.result;
+                parseCSV(text);
+            };
+            reader.readAsText(file);
+        }
+
+        function parseCSV(text) {
+            const lines = text.split('\n').filter(l => l.trim());
+            const headers = lines[0].toLowerCase().split(',');
+            
+            // Find URL column
+            const urlIndex = headers.findIndex(h => h.includes('url') || h.includes('link') || h.includes('website'));
+            
+            if (urlIndex === -1) {
+                alert('Could not find URL column in CSV');
+                return;
+            }
+
+            newsletters = [];
+            for (let i = 1; i < lines.length; i++) {
+                const cols = lines[i].split(',');
+                const url = cols[urlIndex]?.trim();
+                
+                if (url && url.startsWith('http')) {
+                    newsletters.push({
+                        url: url,
+                        name: extractName(url),
+                        platform: detectPlatform(url)
+                    });
+                }
+            }
+
+            // Save to server
+            saveData();
+            updateUI();
+            document.getElementById('startBtn').disabled = false;
+        }
+
+        function extractName(url) {
+            try {
+                const hostname = new URL(url).hostname;
+                return hostname.replace('www.', '').split('.')[0];
+            } catch {
+                return url;
+            }
+        }
+
+        function detectPlatform(url) {
+            if (url.includes('beehiiv.com')) return 'beehiiv';
+            if (url.includes('substack.com')) return 'substack';
+            if (url.includes('ghost.')) return 'ghost';
+            return 'other';
+        }
+
+        function updateUI() {
+            const total = newsletters.length;
+            const success = newsletters.filter(n => statusMap[n.url] === 'success').length;
+            const failed = newsletters.filter(n => statusMap[n.url] === 'failed').length;
+            const pending = total - success - failed;
+
+            document.getElementById('totalCount').textContent = total.toLocaleString();
+            document.getElementById('successCount').textContent = success.toLocaleString();
+            document.getElementById('pendingCount').textContent = pending.toLocaleString();
+            document.getElementById('failedCount').textContent = failed.toLocaleString();
+
+            renderList('allList', newsletters);
+            renderList('pendingList', newsletters.filter(n => !statusMap[n.url]));
+            renderList('successList', newsletters.filter(n => statusMap[n.url] === 'success'));
+            renderList('failedList', newsletters.filter(n => statusMap[n.url] === 'failed'));
+        }
+
+        function renderList(elementId, items) {
+            const list = document.getElementById(elementId);
+            
+            if (items.length === 0) {
+                list.innerHTML = `
+                    <div class="empty-state">
+                        <div style="font-size: 48px; margin-bottom: 16px;">📭</div>
+                        <p>No newsletters in this category</p>
+                    </div>
+                `;
+                return;
+            }
+
+            list.innerHTML = items.map(n => {
+                const status = statusMap[n.url] || 'pending';
+                const statusClass = status === 'success' ? 'status-success' : 
+                                  status === 'failed' ? 'status-failed' : 'status-pending';
+                const statusText = status === 'success' ? '✓ Signed Up' : 
+                                 status === 'failed' ? '⚠ Needs Human' : '⏳ Pending';
+
+                return `
+                    <div class="newsletter-item">
+                        <div class="newsletter-info">
+                            <div class="newsletter-name">${n.name}</div>
+                            <div class="newsletter-url">${n.url}</div>
+                        </div>
+                        <div class="action-buttons">
+                            <span class="status ${statusClass}">${statusText}</span>
+                            ${status === 'failed' ? 
+                                `<button class="btn btn-small" onclick="window.open('${n.url}', '_blank')">
+                                    Open & Sign Up
+                                </button>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function switchTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            
+            event.target.classList.add('active');
+            document.getElementById(tab + 'Tab').classList.add('active');
+        }
+
+        async function saveData() {
+            await fetch('/api/newsletters', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ newsletters, statusMap })
+            });
+        }
+
+        async function startAutomation() {
+            if (!confirm('Start automated signup for all pending newsletters?')) return;
+            
+            await fetch('/api/start-automation', { method: 'POST' });
+            alert('Automation started! Check progress in the dashboard.');
+        }
+
+        // Load data on page load
+        loadData();
+
+        // Auto-refresh every 5 seconds
+        setInterval(loadData, 5000);
+    </script>
+</body>
+</html>
