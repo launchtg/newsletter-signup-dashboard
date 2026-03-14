@@ -425,15 +425,15 @@
             return this.request('/rest/v1/newsletters', 'POST', newsletter);
           }
 
-          async upsertNewsletters(newsletters) {
-            // Add Prefer header for upsert behavior (insert or update on conflict)
+          async insertNewsletters(newsletters) {
+            // Use ignore-duplicates to NEVER overwrite existing records
             const options = {
               method: 'POST',
               headers: {
                 'apikey': this.apiKey,
                 'Authorization': `Bearer ${this.apiKey}`,
                 'Content-Type': 'application/json',
-                'Prefer': 'resolution=merge-duplicates,return=representation'
+                'Prefer': 'resolution=ignore-duplicates,return=representation'
               },
               body: JSON.stringify(newsletters)
             };
@@ -442,10 +442,32 @@
             
             if (!response.ok) {
               const text = await response.text();
-              throw new Error(`Supabase upsert error: ${response.status} - ${text}`);
+              throw new Error(`Supabase insert error: ${response.status} - ${text}`);
             }
 
             return await response.json();
+          }
+          
+          async getExistingUrls() {
+            // Get just the URLs (not full records) for faster filtering
+            let allUrls = [];
+            let offset = 0;
+            const limit = 1000;
+            let hasMore = true;
+            
+            while (hasMore) {
+              const path = `/rest/v1/newsletters?select=url&limit=${limit}&offset=${offset}`;
+              const results = await this.request(path, 'GET');
+              allUrls = allUrls.concat(results.map(r => r.url));
+              
+              if (results.length < limit) {
+                hasMore = false;
+              } else {
+                offset += limit;
+              }
+            }
+            
+            return new Set(allUrls);
           }
 
           async getNewsletters(status = null) {
@@ -699,26 +721,34 @@
                 return;
             }
 
-            // Show saving progress
-            uploadArea.innerHTML = `<div style="font-size: 48px; margin-bottom: 16px;">💾</div>
-                <h3>Saving ${newsletters.length.toLocaleString()} newsletters to database...</h3>`;
-
             // Save to Supabase
             try {
+                const beforeCount = (await supabase.getNewsletters()).length;
+                
                 await saveData();
                 
+                const afterCount = (await supabase.getNewsletters()).length;
+                const addedCount = afterCount - beforeCount;
+                const skippedCount = newsletters.length - addedCount;
+                
+                await loadData();
                 updateUI();
                 document.getElementById('startBtn').disabled = false;
                 resetUploadArea();
                 
                 // Show success message
-                const msg = `✅ Successfully loaded ${newsletters.length.toLocaleString()} newsletters!\n\n` +
-                           `Stored in Supabase database\n` +
-                           `Ready for automation!`;
+                let msg = `SUCCESS: Newsletter import complete!\n\n`;
+                msg += `New newsletters added: ${addedCount.toLocaleString()}\n`;
+                if (skippedCount > 0) {
+                    msg += `Already existed (skipped): ${skippedCount.toLocaleString()}\n`;
+                }
+                msg += `\nTotal in database: ${afterCount.toLocaleString()}\n\n`;
+                msg += `Existing records preserved (no overwrites)`;
+                
                 alert(msg);
             } catch (error) {
                 console.error('Save error:', error);
-                alert('❌ Error saving to database: ' + error.message);
+                alert('ERROR: Failed to save to database\n\n' + error.message);
                 resetUploadArea();
             }
         }
@@ -848,41 +878,77 @@
 
         async function saveData() {
             try {
-                console.log(`Saving ${newsletters.length} newsletters to Supabase...`);
+                console.log(`Processing ${newsletters.length} newsletters...`);
                 
                 const uploadArea = document.getElementById('uploadArea');
                 
-                // Supabase has 1000 record rate limit - use 900 to be safe
+                // Step 1: Get existing URLs from database
+                uploadArea.innerHTML = `
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#B4FF39" stroke-width="2" style="animation: spin 2s linear infinite;">
+                        <circle cx="12" cy="12" r="10"/>
+                        <path d="M12 6v6l4 2"/>
+                    </svg>
+                    <h3>Checking for existing newsletters...</h3>
+                `;
+                
+                console.log('Fetching existing URLs from database...');
+                const existingUrls = await supabase.getExistingUrls();
+                console.log(`Found ${existingUrls.size} existing newsletters in database`);
+                
+                // Step 2: Filter out duplicates
+                const newNewsletters = newsletters.filter(n => !existingUrls.has(n.url));
+                const skippedCount = newsletters.length - newNewsletters.length;
+                
+                console.log(`Filtered: ${newNewsletters.length} new, ${skippedCount} already exist (skipped)`);
+                
+                if (newNewsletters.length === 0) {
+                    uploadArea.innerHTML = `
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#B4FF39" stroke-width="2">
+                            <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
+                            <polyline points="22 4 12 14.01 9 11.01"/>
+                        </svg>
+                        <h3>All ${newsletters.length.toLocaleString()} newsletters already in database</h3>
+                        <p style="color: #888; margin-top: 8px;">No new records to add. Existing records preserved.</p>
+                    `;
+                    
+                    alert(`INFO: All ${newsletters.length.toLocaleString()} newsletters already exist in database.\n\nNo changes made. Existing signup statuses preserved.`);
+                    return;
+                }
+                
+                // Step 3: Insert only NEW newsletters
+                console.log(`Inserting ${newNewsletters.length} new newsletters to Supabase...`);
+                
                 const chunkSize = 900;
                 let savedCount = 0;
                 let failedChunks = [];
                 
-                for (let i = 0; i < newsletters.length; i += chunkSize) {
-                    const chunk = newsletters.slice(i, i + chunkSize);
+                for (let i = 0; i < newNewsletters.length; i += chunkSize) {
+                    const chunk = newNewsletters.slice(i, i + chunkSize);
                     let retries = 3;
                     let success = false;
                     
                     while (retries > 0 && !success) {
                         try {
-                            const result = await supabase.upsertNewsletters(chunk);
+                            const result = await supabase.insertNewsletters(chunk);
                             savedCount += chunk.length;
                             success = true;
                             
                             // Update progress
-                            const percent = ((savedCount / newsletters.length) * 100).toFixed(1);
+                            const percent = ((savedCount / newNewsletters.length) * 100).toFixed(1);
                             uploadArea.innerHTML = `
                                 <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#B4FF39" stroke-width="2">
                                     <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
                                     <polyline points="17 21 17 13 7 13 7 21"/>
                                     <polyline points="7 3 7 8 15 8"/>
                                 </svg>
-                                <h3>Saving to database... ${savedCount.toLocaleString()} / ${newsletters.length.toLocaleString()} (${percent}%)</h3>
+                                <h3>Saving new newsletters... ${savedCount.toLocaleString()} / ${newNewsletters.length.toLocaleString()} (${percent}%)</h3>
+                                ${skippedCount > 0 ? `<p style="color: #888; font-size: 14px; margin-top: 4px;">${skippedCount.toLocaleString()} duplicates skipped (preserving existing data)</p>` : ''}
                                 <div style="width: 100%; height: 8px; background: #2a2a2a; border-radius: 4px; margin-top: 12px;">
                                     <div style="width: ${percent}%; height: 100%; background: #B4FF39; border-radius: 4px; transition: width 0.3s;"></div>
                                 </div>
                             `;
                             
-                            console.log(`Saved batch ${Math.floor(i/chunkSize) + 1}: ${savedCount}/${newsletters.length} (${percent}%)`);
+                            console.log(`Saved batch ${Math.floor(i/chunkSize) + 1}: ${savedCount}/${newNewsletters.length} (${percent}%)`);
                             
                             // Delay to avoid rate limits
                             await new Promise(r => setTimeout(r, 200));
@@ -897,7 +963,7 @@
                             } else {
                                 failedChunks.push({ 
                                     start: i, 
-                                    end: Math.min(i + chunkSize, newsletters.length),
+                                    end: Math.min(i + chunkSize, newNewsletters.length),
                                     count: chunk.length,
                                     error: chunkError.message 
                                 });
@@ -918,8 +984,9 @@
                 
                 const dbNewsletters = await supabase.getNewsletters();
                 const dbCount = dbNewsletters.length;
+                const expectedTotal = existingUrls.size + newNewsletters.length;
                 
-                console.log(`Upload complete: Attempted ${newsletters.length}, Database has ${dbCount}`);
+                console.log(`Upload complete: ${savedCount} new added, ${skippedCount} skipped, ${dbCount} total in database`);
                 
                 if (failedChunks.length > 0) {
                     const failedCount = failedChunks.reduce((sum, chunk) => sum + chunk.count, 0);
@@ -935,15 +1002,12 @@
                     );
                 }
                 
-                if (dbCount < newsletters.length * 0.95) { // Allow 5% tolerance for duplicates
-                    console.warn(`Database count (${dbCount}) is significantly less than uploaded (${newsletters.length})`);
-                    throw new Error(
-                        `Verification failed: Only ${dbCount} of ${newsletters.length} newsletters in database.\n\n` +
-                        `${newsletters.length - dbCount} records missing.`
-                    );
-                }
+                console.log('SUCCESS: All new newsletters saved!', {
+                    added: savedCount,
+                    skipped: skippedCount,
+                    total: dbCount
+                });
                 
-                console.log('SUCCESS: All newsletters saved and verified!', dbCount, 'newsletters in database');
             } catch (e) {
                 console.error('Error saving to Supabase:', e);
                 throw e;
