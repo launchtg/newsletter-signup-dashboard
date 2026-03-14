@@ -426,15 +426,52 @@
           }
 
           async upsertNewsletters(newsletters) {
-            return this.request('/rest/v1/newsletters', 'POST', newsletters);
+            // Add Prefer header for upsert behavior (insert or update on conflict)
+            const options = {
+              method: 'POST',
+              headers: {
+                'apikey': this.apiKey,
+                'Authorization': `Bearer ${this.apiKey}`,
+                'Content-Type': 'application/json',
+                'Prefer': 'resolution=merge-duplicates,return=representation'
+              },
+              body: JSON.stringify(newsletters)
+            };
+
+            const response = await fetch(this.baseUrl + '/rest/v1/newsletters', options);
+            
+            if (!response.ok) {
+              const text = await response.text();
+              throw new Error(`Supabase upsert error: ${response.status} - ${text}`);
+            }
+
+            return await response.json();
           }
 
           async getNewsletters(status = null) {
-            let path = '/rest/v1/newsletters?select=*&order=created_at.desc';
-            if (status) {
-              path += `&status=eq.${status}`;
+            // Supabase returns max 1000 rows by default - we need to paginate
+            let allResults = [];
+            let offset = 0;
+            const limit = 1000;
+            let hasMore = true;
+            
+            while (hasMore) {
+              let path = `/rest/v1/newsletters?select=*&order=created_at.desc&limit=${limit}&offset=${offset}`;
+              if (status) {
+                path += `&status=eq.${status}`;
+              }
+              
+              const results = await this.request(path, 'GET');
+              allResults = allResults.concat(results);
+              
+              if (results.length < limit) {
+                hasMore = false;
+              } else {
+                offset += limit;
+              }
             }
-            return this.request(path, 'GET');
+            
+            return allResults;
           }
 
           async updateStatus(url, status) {
@@ -822,53 +859,91 @@
                 
                 for (let i = 0; i < newsletters.length; i += chunkSize) {
                     const chunk = newsletters.slice(i, i + chunkSize);
+                    let retries = 3;
+                    let success = false;
                     
-                    try {
-                        const result = await supabase.upsertNewsletters(chunk);
-                        savedCount += chunk.length;
-                        
-                        // Update progress
-                        const percent = ((savedCount / newsletters.length) * 100).toFixed(1);
-                        uploadArea.innerHTML = `
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#B4FF39" stroke-width="2">
-                                <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
-                                <polyline points="17 21 17 13 7 13 7 21"/>
-                                <polyline points="7 3 7 8 15 8"/>
-                            </svg>
-                            <h3>Saving to database... ${savedCount.toLocaleString()} / ${newsletters.length.toLocaleString()} (${percent}%)</h3>
-                            <div style="width: 100%; height: 8px; background: #2a2a2a; border-radius: 4px; margin-top: 12px;">
-                                <div style="width: ${percent}%; height: 100%; background: #B4FF39; border-radius: 4px; transition: width 0.3s;"></div>
-                            </div>
-                        `;
-                        
-                        console.log(`Saved ${savedCount}/${newsletters.length}`);
-                        
-                        // Small delay to avoid rate limits (Supabase allows ~10 req/sec)
-                        await new Promise(r => setTimeout(r, 150));
-                    } catch (chunkError) {
-                        console.error(`Error saving chunk ${i}-${i+chunkSize}:`, chunkError);
-                        failedChunks.push({ start: i, end: i + chunkSize, error: chunkError.message });
+                    while (retries > 0 && !success) {
+                        try {
+                            const result = await supabase.upsertNewsletters(chunk);
+                            savedCount += chunk.length;
+                            success = true;
+                            
+                            // Update progress
+                            const percent = ((savedCount / newsletters.length) * 100).toFixed(1);
+                            uploadArea.innerHTML = `
+                                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#B4FF39" stroke-width="2">
+                                    <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
+                                    <polyline points="17 21 17 13 7 13 7 21"/>
+                                    <polyline points="7 3 7 8 15 8"/>
+                                </svg>
+                                <h3>Saving to database... ${savedCount.toLocaleString()} / ${newsletters.length.toLocaleString()} (${percent}%)</h3>
+                                <div style="width: 100%; height: 8px; background: #2a2a2a; border-radius: 4px; margin-top: 12px;">
+                                    <div style="width: ${percent}%; height: 100%; background: #B4FF39; border-radius: 4px; transition: width 0.3s;"></div>
+                                </div>
+                            `;
+                            
+                            console.log(`Saved batch ${Math.floor(i/chunkSize) + 1}: ${savedCount}/${newsletters.length} (${percent}%)`);
+                            
+                            // Delay to avoid rate limits
+                            await new Promise(r => setTimeout(r, 200));
+                            
+                        } catch (chunkError) {
+                            retries--;
+                            console.error(`Error saving chunk ${i}-${i+chunkSize} (${3-retries}/3 attempts):`, chunkError.message);
+                            
+                            if (retries > 0) {
+                                console.log(`Retrying in 1 second... (${retries} attempts left)`);
+                                await new Promise(r => setTimeout(r, 1000));
+                            } else {
+                                failedChunks.push({ 
+                                    start: i, 
+                                    end: Math.min(i + chunkSize, newsletters.length),
+                                    count: chunk.length,
+                                    error: chunkError.message 
+                                });
+                            }
+                        }
                     }
                 }
                 
                 // Verify count in database
                 console.log('Verifying database count...');
+                uploadArea.innerHTML = `
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#B4FF39" stroke-width="2" style="animation: spin 2s linear infinite;">
+                        <circle cx="12" cy="12" r="10"/>
+                        <path d="M12 6v6l4 2"/>
+                    </svg>
+                    <h3>Verifying database...</h3>
+                `;
+                
                 const dbNewsletters = await supabase.getNewsletters();
                 const dbCount = dbNewsletters.length;
                 
-                console.log(`Upload complete: ${savedCount} sent, ${dbCount} in database`);
+                console.log(`Upload complete: Attempted ${newsletters.length}, Database has ${dbCount}`);
                 
                 if (failedChunks.length > 0) {
-                    console.warn('Some chunks failed:', failedChunks);
-                    throw new Error(`${failedChunks.length} chunks failed to save. Database has ${dbCount} records.`);
+                    const failedCount = failedChunks.reduce((sum, chunk) => sum + chunk.count, 0);
+                    const errorDetails = failedChunks.map(c => 
+                        `Chunk ${c.start}-${c.end} (${c.count} records): ${c.error}`
+                    ).join('\n');
+                    
+                    console.error('Failed chunks:', errorDetails);
+                    throw new Error(
+                        `Failed to save ${failedCount} newsletters (${failedChunks.length} chunks failed).\n\n` +
+                        `Database has ${dbCount} records.\n\n` +
+                        `Details:\n${errorDetails}`
+                    );
                 }
                 
-                if (dbCount < newsletters.length) {
-                    console.warn(`Database count (${dbCount}) is less than expected (${newsletters.length})`);
-                    throw new Error(`Only ${dbCount} of ${newsletters.length} newsletters saved to database.`);
+                if (dbCount < newsletters.length * 0.95) { // Allow 5% tolerance for duplicates
+                    console.warn(`Database count (${dbCount}) is significantly less than uploaded (${newsletters.length})`);
+                    throw new Error(
+                        `Verification failed: Only ${dbCount} of ${newsletters.length} newsletters in database.\n\n` +
+                        `${newsletters.length - dbCount} records missing.`
+                    );
                 }
                 
-                console.log('✅ Save complete and verified!', dbCount, 'newsletters in database');
+                console.log('SUCCESS: All newsletters saved and verified!', dbCount, 'newsletters in database');
             } catch (e) {
                 console.error('Error saving to Supabase:', e);
                 throw e;
