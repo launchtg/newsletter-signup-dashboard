@@ -526,7 +526,8 @@
           }
 
           async deleteAll() {
-            return this.request('/rest/v1/newsletters', 'DELETE');
+            // Supabase requires a WHERE clause for DELETE - use id >= 0 to match all
+            return this.request('/rest/v1/newsletters?id=gte.0', 'DELETE');
           }
         }
     </script>
@@ -610,13 +611,13 @@
                     await parseCSV(text);
                 } catch (error) {
                     console.error('Error processing file:', error);
-                    alert('❌ Error processing file: ' + error.message);
+                    alert('ERROR: Error processing file: ' + error.message);
                     resetUploadArea();
                 }
             };
             reader.onerror = (e) => {
                 console.error('File read error:', e);
-                alert('❌ Could not read file');
+                alert('ERROR: Could not read file');
                 resetUploadArea();
             };
             reader.readAsText(file);
@@ -1114,26 +1115,47 @@
                 });
                 
                 if (response.ok) {
-                    alert('✅ Automation started! Progress will update automatically every 5 seconds.');
+                    alert('SUCCESS: Automation started! Progress will update automatically every 5 seconds.');
                 } else {
-                    alert('⚠️ Could not start automation. Check VPS connection.');
+                    alert('WARNING: Could not start automation. Check VPS connection.');
                 }
             } catch (e) {
-                alert('❌ Error starting automation: ' + e.message);
+                alert('ERROR: Error starting automation: ' + e.message);
             }
         }
         
         async function clearData() {
-            if (!confirm('⚠️ Clear all newsletter data from Supabase? This cannot be undone!')) return;
+            if (!confirm('WARNING: Clear all newsletter data from Supabase? This cannot be undone!')) return;
+            
+            const uploadArea = document.getElementById('uploadArea');
             
             try {
+                uploadArea.innerHTML = `
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ff4444" stroke-width="2" style="margin-bottom: 16px; animation: spin 2s linear infinite;">
+                        <polyline points="3 6 5 6 21 6"/>
+                        <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                        <line x1="10" y1="11" x2="10" y2="17"/>
+                        <line x1="14" y1="11" x2="14" y2="17"/>
+                    </svg>
+                    <h3>Deleting all newsletters...</h3>
+                `;
+                
+                console.log('Deleting all records from database...');
                 await supabase.deleteAll();
+                
                 newsletters = [];
                 statusMap = {};
+                
+                console.log('Reloading data to verify deletion...');
+                await loadData();
                 updateUI();
-                alert('✅ All data cleared from Supabase!');
+                resetUploadArea();
+                
+                alert('SUCCESS: All data cleared from Supabase!\n\nDatabase is now empty and ready for fresh upload.');
             } catch (e) {
-                alert('❌ Error clearing data: ' + e.message);
+                console.error('Delete error:', e);
+                resetUploadArea();
+                alert('ERROR: Failed to clear data\n\n' + e.message);
             }
         }
         
