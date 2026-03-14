@@ -358,37 +358,30 @@
         </div>
     </div>
 
+    <script src="supabase-client.js"></script>
     <script>
+        const supabase = new SupabaseClient();
         let newsletters = [];
         let statusMap = {};
 
-        // Load existing data from localStorage and VPS
+        // Load existing data from Supabase
         async function loadData() {
-            // Load from localStorage first (uploaded data)
-            const stored = localStorage.getItem('newsletters');
-            if (stored) {
-                try {
-                    const data = JSON.parse(stored);
-                    newsletters = data.newsletters || [];
-                    statusMap = data.statusMap || {};
-                } catch (e) {
-                    console.error('Error loading from localStorage:', e);
-                }
-            }
-            
-            // Load signup status from VPS
             try {
-                const response = await fetch('http://209.182.213.100:8080/api/status');
-                if (response.ok) {
-                    const vpsStatus = await response.json();
-                    // Merge status from VPS
-                    Object.assign(statusMap, vpsStatus.statusMap || {});
-                }
+                console.log('Loading from Supabase...');
+                newsletters = await supabase.getNewsletters();
+                
+                // Build status map
+                statusMap = {};
+                newsletters.forEach(n => {
+                    statusMap[n.url] = n.status || 'pending';
+                });
+                
+                console.log(`Loaded ${newsletters.length} newsletters from Supabase`);
+                updateUI();
             } catch (e) {
-                console.log('Could not load VPS status');
+                console.error('Error loading from Supabase:', e);
+                alert('⚠️ Could not connect to database. Check console for details.');
             }
-            
-            updateUI();
         }
 
         // File upload handling
@@ -469,18 +462,30 @@
                     domain = 'https://' + domain;
                 }
                 
-                // Create full contact object with all fields
+                // Create contact object with Supabase schema
                 const contact = {
                     url: domain,
                     name: extractName(domain),
-                    platform: detectPlatform(domain)
+                    platform: detectPlatform(domain),
+                    company: null,
+                    employees: null,
+                    country: null,
+                    status: 'pending',
+                    data: {}
                 };
                 
-                // Store all additional fields
+                // Store key fields and rest in data JSONB
                 headers.forEach((header, idx) => {
-                    if (idx !== urlIndex && cols[idx]) {
-                        contact[header] = cols[idx].trim();
-                    }
+                    if (idx === urlIndex || !cols[idx]) return;
+                    
+                    const value = cols[idx].trim();
+                    if (!value) return;
+                    
+                    // Map to Supabase columns
+                    if (header.toLowerCase() === 'company') contact.company = value;
+                    else if (header.toLowerCase() === 'employees') contact.employees = value;
+                    else if (header.toLowerCase() === 'country') contact.country = value;
+                    else contact.data[header] = value;
                 });
                 
                 newsletters.push(contact);
@@ -618,22 +623,21 @@
         }
 
         async function saveData() {
-            // Save to localStorage
-            localStorage.setItem('newsletters', JSON.stringify({ 
-                newsletters, 
-                statusMap,
-                lastUpdated: new Date().toISOString()
-            }));
-            
-            // Also save to VPS for backup
             try {
-                await fetch('http://209.182.213.100:8080/api/save', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ newsletters, statusMap })
-                });
+                console.log(`Saving ${newsletters.length} newsletters to Supabase...`);
+                
+                // Batch upload in chunks of 1000
+                const chunkSize = 1000;
+                for (let i = 0; i < newsletters.length; i += chunkSize) {
+                    const chunk = newsletters.slice(i, i + chunkSize);
+                    await supabase.upsertNewsletters(chunk);
+                    console.log(`Saved ${Math.min(i + chunkSize, newsletters.length)}/${newsletters.length}`);
+                }
+                
+                console.log('✅ Save complete!');
             } catch (e) {
-                console.log('VPS save failed (continuing anyway)');
+                console.error('Error saving to Supabase:', e);
+                throw e;
             }
         }
 
@@ -657,23 +661,29 @@
             }
         }
         
-        function clearData() {
-            if (!confirm('⚠️ Clear all newsletter data? This cannot be undone!')) return;
+        async function clearData() {
+            if (!confirm('⚠️ Clear all newsletter data from Supabase? This cannot be undone!')) return;
             
-            localStorage.removeItem('newsletters');
-            newsletters = [];
-            statusMap = {};
-            updateUI();
-            alert('✅ All data cleared!');
+            try {
+                await supabase.deleteAll();
+                newsletters = [];
+                statusMap = {};
+                updateUI();
+                alert('✅ All data cleared from Supabase!');
+            } catch (e) {
+                alert('❌ Error clearing data: ' + e.message);
+            }
         }
         
         function updateStorageInfo() {
-            const stored = localStorage.getItem('newsletters');
-            const size = stored ? (stored.length / 1024).toFixed(1) : '0';
-            const lastUpdate = stored ? JSON.parse(stored).lastUpdated : 'Never';
+            const stats = newsletters.length;
+            const pending = newsletters.filter(n => n.status === 'pending').length;
+            const success = newsletters.filter(n => n.status === 'success').length;
+            const failed = newsletters.filter(n => n.status === 'failed').length;
             
             document.getElementById('storageInfo').innerHTML = 
-                `📦 Storage: ${size} KB | Last updated: ${lastUpdate ? new Date(lastUpdate).toLocaleString() : 'Never'} | Browser: ${navigator.userAgent.split(' ')[0]}`;
+                `🗄️ Supabase: ${stats.toLocaleString()} newsletters | ` +
+                `⏳ ${pending} pending | ✅ ${success} signed up | ⚠️ ${failed} need human`;
         }
 
         // Load data on page load
