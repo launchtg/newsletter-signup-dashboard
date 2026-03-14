@@ -117,37 +117,47 @@ const server = http.createServer((req, res) => {
     
     // API: Start automation
     if (req.url === '/api/start-automation' && req.method === 'POST') {
-        // Load newsletter data
-        if (!fs.existsSync(DATA_FILE)) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'No newsletters loaded' }));
-            return;
-        }
-        
-        const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-        const pendingNewsletters = data.newsletters.filter(n => !data.statusMap[n.url]);
-        
-        // Save pending newsletters to a file for the automation script
-        fs.writeFileSync(
-            '/root/.openclaw/workspace/data/pending-signups.json',
-            JSON.stringify({ newsletters: pendingNewsletters }, null, 2)
-        );
-        
-        // Start automation script in background
-        exec(
-            'cd /root/.openclaw/workspace && nohup node scripts/automated-signup-worker.js > logs/automation-worker.log 2>&1 &',
-            (error) => {
-                if (error) {
-                    console.error('Error starting automation:', error);
+        let body = '';
+        req.on('data', chunk => { body += chunk; });
+        req.on('end', () => {
+            try {
+                const data = JSON.parse(body);
+                const pendingNewsletters = data.newsletters || [];
+                
+                if (pendingNewsletters.length === 0) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'No newsletters to process' }));
+                    return;
                 }
+                
+                // Save pending newsletters to a file for the automation script
+                fs.writeFileSync(
+                    '/root/.openclaw/workspace/data/pending-signups.json',
+                    JSON.stringify({ newsletters: pendingNewsletters }, null, 2)
+                );
+                
+                console.log(`Starting automation for ${pendingNewsletters.length} newsletters...`);
+                
+                // Start automation script in background
+                exec(
+                    'cd /root/.openclaw/workspace && nohup node scripts/automated-signup-worker.js > logs/automation-worker.log 2>&1 &',
+                    (error) => {
+                        if (error) {
+                            console.error('Error starting automation:', error);
+                        }
+                    }
+                );
+                
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ 
+                    success: true, 
+                    message: `Started automation for ${pendingNewsletters.length} newsletters`
+                }));
+            } catch (e) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Invalid request data' }));
             }
-        );
-        
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ 
-            success: true, 
-            message: `Started automation for ${pendingNewsletters.length} newsletters`
-        }));
+        });
         return;
     }
     

@@ -318,14 +318,18 @@
                 <p style="color: #718096; font-size: 14px;">Accepts CSV with URL column (36,000 newsletters from Fiverr)</p>
                 <input type="file" id="fileInput" accept=".csv,.txt">
             </div>
-            <div style="margin-top: 16px; display: flex; gap: 12px;">
+            <div style="margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap;">
                 <button class="btn" onclick="document.getElementById('fileInput').click()">
                     Choose File
                 </button>
                 <button class="btn" onclick="startAutomation()" id="startBtn" disabled>
                     🚀 Start Automated Signups
                 </button>
+                <button class="btn" onclick="clearData()" style="background: #ff4444;">
+                    Clear All Data
+                </button>
             </div>
+            <div id="storageInfo" style="margin-top: 12px; padding: 12px; background: #252525; border-radius: 8px; font-size: 13px; color: #888;"></div>
         </div>
 
         <div class="card">
@@ -491,11 +495,16 @@
             }
 
             // Save to server
-            saveData();
+            await saveData();
             updateUI();
             document.getElementById('startBtn').disabled = false;
             
-            alert(`✅ Loaded ${newsletters.length} newsletters!`);
+            // Show detailed success message
+            const msg = `✅ Successfully loaded ${newsletters.length.toLocaleString()} newsletters!\n\n` +
+                       `Data stored in your browser.\n` +
+                       `Already signed up: ${Object.keys(statusMap).filter(k => statusMap[k] === 'success').length}\n` +
+                       `Ready for automation: ${newsletters.filter(n => !statusMap[n.url]).length}`;
+            alert(msg);
         }
 
         function parseCSVLine(line) {
@@ -631,15 +640,49 @@
         async function startAutomation() {
             if (!confirm('Start automated signup for all pending newsletters?')) return;
             
-            await fetch('/api/start-automation', { method: 'POST' });
-            alert('Automation started! Check progress in the dashboard.');
+            try {
+                const response = await fetch('http://209.182.213.100:8080/api/start-automation', { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ newsletters: newsletters.filter(n => !statusMap[n.url]) })
+                });
+                
+                if (response.ok) {
+                    alert('✅ Automation started! Progress will update automatically every 5 seconds.');
+                } else {
+                    alert('⚠️ Could not start automation. Check VPS connection.');
+                }
+            } catch (e) {
+                alert('❌ Error starting automation: ' + e.message);
+            }
+        }
+        
+        function clearData() {
+            if (!confirm('⚠️ Clear all newsletter data? This cannot be undone!')) return;
+            
+            localStorage.removeItem('newsletters');
+            newsletters = [];
+            statusMap = {};
+            updateUI();
+            alert('✅ All data cleared!');
+        }
+        
+        function updateStorageInfo() {
+            const stored = localStorage.getItem('newsletters');
+            const size = stored ? (stored.length / 1024).toFixed(1) : '0';
+            const lastUpdate = stored ? JSON.parse(stored).lastUpdated : 'Never';
+            
+            document.getElementById('storageInfo').innerHTML = 
+                `📦 Storage: ${size} KB | Last updated: ${lastUpdate ? new Date(lastUpdate).toLocaleString() : 'Never'} | Browser: ${navigator.userAgent.split(' ')[0]}`;
         }
 
         // Load data on page load
-        loadData();
+        loadData().then(updateStorageInfo);
 
         // Auto-refresh every 5 seconds
-        setInterval(loadData, 5000);
+        setInterval(() => {
+            loadData().then(updateStorageInfo);
+        }, 5000);
     </script>
 </body>
 </html>
