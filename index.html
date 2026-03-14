@@ -408,34 +408,103 @@
 
         function parseCSV(text) {
             const lines = text.split('\n').filter(l => l.trim());
-            const headers = lines[0].toLowerCase().split(',');
+            if (lines.length < 2) {
+                alert('CSV file appears to be empty');
+                return;
+            }
+
+            // Parse headers
+            const headers = parseCSVLine(lines[0]);
             
-            // Find URL column
-            const urlIndex = headers.findIndex(h => h.includes('url') || h.includes('link') || h.includes('website'));
+            // Find URL column (check multiple possible names)
+            const urlIndex = headers.findIndex(h => {
+                const lower = h.toLowerCase();
+                return lower.includes('root domain') || 
+                       lower.includes('primary domain') || 
+                       lower.includes('url') || 
+                       lower.includes('domain') ||
+                       lower.includes('website');
+            });
             
             if (urlIndex === -1) {
-                alert('Could not find URL column in CSV');
+                alert('Could not find domain/URL column in CSV. Found columns: ' + headers.join(', '));
                 return;
             }
 
             newsletters = [];
+            let parsed = 0;
+            let skipped = 0;
+
             for (let i = 1; i < lines.length; i++) {
-                const cols = lines[i].split(',');
-                const url = cols[urlIndex]?.trim();
+                const cols = parseCSVLine(lines[i]);
+                if (cols.length < headers.length - 5) continue; // Skip malformed lines
                 
-                if (url && url.startsWith('http')) {
-                    newsletters.push({
-                        url: url,
-                        name: extractName(url),
-                        platform: detectPlatform(url)
-                    });
+                let domain = cols[urlIndex]?.trim();
+                
+                if (!domain) {
+                    skipped++;
+                    continue;
                 }
+                
+                // Add https:// if missing
+                if (!domain.startsWith('http')) {
+                    domain = 'https://' + domain;
+                }
+                
+                // Create full contact object with all fields
+                const contact = {
+                    url: domain,
+                    name: extractName(domain),
+                    platform: detectPlatform(domain)
+                };
+                
+                // Store all additional fields
+                headers.forEach((header, idx) => {
+                    if (idx !== urlIndex && cols[idx]) {
+                        contact[header] = cols[idx].trim();
+                    }
+                });
+                
+                newsletters.push(contact);
+                parsed++;
+            }
+
+            console.log(`Parsed ${parsed} newsletters, skipped ${skipped}`);
+            
+            if (newsletters.length === 0) {
+                alert('No valid domains found in CSV');
+                return;
             }
 
             // Save to server
             saveData();
             updateUI();
             document.getElementById('startBtn').disabled = false;
+            
+            alert(`✅ Loaded ${newsletters.length} newsletters!`);
+        }
+
+        function parseCSVLine(line) {
+            // Handle quoted fields with commas
+            const result = [];
+            let current = '';
+            let inQuotes = false;
+            
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                
+                if (char === '"') {
+                    inQuotes = !inQuotes;
+                } else if (char === ',' && !inQuotes) {
+                    result.push(current);
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+            result.push(current);
+            
+            return result.map(s => s.replace(/^"|"$/g, '').trim());
         }
 
         function extractName(url) {
@@ -491,11 +560,19 @@
                 const statusText = status === 'success' ? '✓ Signed Up' : 
                                  status === 'failed' ? '⚠ Needs Human' : '⏳ Pending';
 
+                // Build additional info line
+                let extraInfo = [];
+                if (n.Company) extraInfo.push(n.Company);
+                if (n.Employees) extraInfo.push(`${n.Employees} employees`);
+                if (n.Country) extraInfo.push(n.Country);
+                const extraLine = extraInfo.length > 0 ? `<div style="font-size: 12px; color: #666; margin-top: 4px;">${extraInfo.join(' • ')}</div>` : '';
+
                 return `
                     <div class="newsletter-item">
                         <div class="newsletter-info">
-                            <div class="newsletter-name">${n.name}</div>
+                            <div class="newsletter-name">${n.name}${n.Company ? ` - ${n.Company}` : ''}</div>
                             <div class="newsletter-url">${n.url}</div>
+                            ${extraLine}
                         </div>
                         <div class="action-buttons">
                             <span class="status ${statusClass}">${statusText}</span>
