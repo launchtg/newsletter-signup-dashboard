@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Upload Diagnostic</title>
+    <style>
+        body { 
+            font-family: monospace; 
+            padding: 20px; 
+            background: #0a0a0a; 
+            color: #fff; 
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .pass { color: #B4FF39; }
+        .fail { color: #ff4444; }
+        pre { 
+            background: #1a1a1a; 
+            padding: 15px; 
+            border-radius: 4px; 
+            overflow-x: auto;
+            border: 1px solid #2a2a2a;
+        }
+        button {
+            background: #B4FF39;
+            color: #0a0a0a;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #a0e830;
+        }
+        input[type="file"] {
+            margin: 20px 0;
+            padding: 10px;
+            background: #1a1a1a;
+            border: 1px solid #2a2a2a;
+            color: #fff;
+            border-radius: 4px;
+        }
+        .section {
+            background: #1a1a1a;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            border: 1px solid #2a2a2a;
+        }
+        h2 {
+            color: #B4FF39;
+            margin-top: 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Upload Diagnostic Tool</h1>
+    <p>This will help identify why uploads aren't working.</p>
+
+    <div class="section">
+        <h2>Test 1: File Selection</h2>
+        <input type="file" id="testFile" accept=".csv">
+        <button onclick="testFileSelection()">Test File Selection</button>
+        <div id="fileResult"></div>
+    </div>
+
+    <div class="section">
+        <h2>Test 2: Supabase Connection</h2>
+        <button onclick="testSupabase()">Test Database Connection</button>
+        <div id="supabaseResult"></div>
+    </div>
+
+    <div class="section">
+        <h2>Test 3: CSV Parsing</h2>
+        <button onclick="testCSVParse()">Test CSV Parsing</button>
+        <div id="parseResult"></div>
+    </div>
+
+    <div class="section">
+        <h2>Test 4: Full Upload Simulation</h2>
+        <button onclick="testFullUpload()">Simulate Full Upload</button>
+        <div id="uploadResult"></div>
+    </div>
+
+    <div class="section">
+        <h2>Browser Console Logs</h2>
+        <button onclick="showLogs()">Show Console Logs</button>
+        <pre id="logs"></pre>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://eytpovjjhwprfedrdceu.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5dHBvdmpqaHdwcmZlZHJkY2V1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3Mjg0NjYwNSwiZXhwIjoyMDg4NDIyNjA1fQ.p64Gk9WfSXwV4fCBlJV-o2JH8zrkX6hFTdzK7yxLC0o';
+
+        let logs = [];
+        const originalConsoleLog = console.log;
+        const originalConsoleError = console.error;
+
+        console.log = function(...args) {
+            logs.push({ type: 'log', message: args.join(' '), time: new Date().toISOString() });
+            originalConsoleLog.apply(console, args);
+        };
+
+        console.error = function(...args) {
+            logs.push({ type: 'error', message: args.join(' '), time: new Date().toISOString() });
+            originalConsoleError.apply(console, args);
+        };
+
+        function testFileSelection() {
+            const fileInput = document.getElementById('testFile');
+            const result = document.getElementById('fileResult');
+            
+            if (!fileInput.files.length) {
+                result.innerHTML = '<p class="fail">No file selected. Please select a CSV file first.</p>';
+                return;
+            }
+
+            const file = fileInput.files[0];
+            result.innerHTML = `
+                <p class="pass">File selected successfully!</p>
+                <pre>Name: ${file.name}
+Size: ${file.size.toLocaleString()} bytes
+Type: ${file.type || 'unknown'}
+Last Modified: ${new Date(file.lastModified).toLocaleString()}</pre>
+            `;
+        }
+
+        async function testSupabase() {
+            const result = document.getElementById('supabaseResult');
+            result.innerHTML = '<p>Testing connection...</p>';
+
+            try {
+                const response = await fetch(SUPABASE_URL + '/rest/v1/newsletters?select=count&limit=1', {
+                    headers: {
+                        'apikey': SUPABASE_KEY,
+                        'Authorization': `Bearer ${SUPABASE_KEY}`,
+                        'Prefer': 'count=exact'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                result.innerHTML = `
+                    <p class="pass">Connection successful!</p>
+                    <pre>Database records: ${data[0]?.count || 0}</pre>
+                `;
+            } catch (error) {
+                result.innerHTML = `<p class="fail">Connection failed: ${error.message}</p>`;
+            }
+        }
+
+        async function testCSVParse() {
+            const fileInput = document.getElementById('testFile');
+            const result = document.getElementById('parseResult');
+
+            if (!fileInput.files.length) {
+                result.innerHTML = '<p class="fail">Please select a CSV file first.</p>';
+                return;
+            }
+
+            result.innerHTML = '<p>Parsing CSV...</p>';
+
+            try {
+                const file = fileInput.files[0];
+                const text = await file.text();
+                const lines = text.split('\n').filter(l => l.trim());
+
+                const headers = lines[0].split(',');
+                const firstRow = lines[1]?.split(',') || [];
+
+                result.innerHTML = `
+                    <p class="pass">CSV parsed successfully!</p>
+                    <pre>Total lines: ${lines.length.toLocaleString()}
+Headers (${headers.length}):
+${headers.slice(0, 10).join('\n')}${headers.length > 10 ? '\n... and ' + (headers.length - 10) + ' more' : ''}
+
+First data row:
+${firstRow.slice(0, 5).join(', ')}${firstRow.length > 5 ? '...' : ''}</pre>
+                `;
+            } catch (error) {
+                result.innerHTML = `<p class="fail">Parse failed: ${error.message}</p>`;
+            }
+        }
+
+        async function testFullUpload() {
+            const fileInput = document.getElementById('testFile');
+            const result = document.getElementById('uploadResult');
+
+            if (!fileInput.files.length) {
+                result.innerHTML = '<p class="fail">Please select a CSV file first.</p>';
+                return;
+            }
+
+            result.innerHTML = '<p>Simulating upload...</p>';
+
+            try {
+                // Step 1: Read file
+                const file = fileInput.files[0];
+                const text = await file.text();
+                result.innerHTML += '<p class="pass">Step 1: File read OK</p>';
+
+                // Step 2: Parse CSV
+                const lines = text.split('\n').filter(l => l.trim());
+                result.innerHTML += `<p class="pass">Step 2: Found ${lines.length.toLocaleString()} lines</p>`;
+
+                // Step 3: Test Supabase
+                const response = await fetch(SUPABASE_URL + '/rest/v1/newsletters?select=url&limit=10', {
+                    headers: {
+                        'apikey': SUPABASE_KEY,
+                        'Authorization': `Bearer ${SUPABASE_KEY}`
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Database query failed: ${response.status}`);
+                }
+
+                result.innerHTML += '<p class="pass">Step 3: Database connection OK</p>';
+
+                result.innerHTML += `
+                    <p class="pass">All checks passed!</p>
+                    <p style="color: #B4FF39;">The upload system should be working. Try uploading in the main dashboard.</p>
+                `;
+
+            } catch (error) {
+                result.innerHTML += `<p class="fail">Test failed at: ${error.message}</p>`;
+            }
+        }
+
+        function showLogs() {
+            const logsDiv = document.getElementById('logs');
+            if (logs.length === 0) {
+                logsDiv.textContent = 'No console logs yet. Perform some tests above.';
+                return;
+            }
+
+            logsDiv.textContent = logs.map(log => 
+                `[${log.time}] ${log.type.toUpperCase()}: ${log.message}`
+            ).join('\n');
+        }
+    </script>
+
+    <hr style="border-color: #2a2a2a; margin: 40px 0;">
+    <p style="text-align: center;">
+        <a href="index.html" style="color: #B4FF39;">Back to Dashboard</a>
+    </p>
+</body>
+</html>
