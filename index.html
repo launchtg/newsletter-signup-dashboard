@@ -746,6 +746,36 @@
                 resetUploadArea();
                 return;
             }
+            
+            // Remove duplicates within the CSV itself (keep first occurrence)
+            const seenUrls = new Set();
+            const uniqueNewsletters = [];
+            let csvDuplicates = 0;
+            
+            for (const newsletter of newsletters) {
+                if (!seenUrls.has(newsletter.url)) {
+                    seenUrls.add(newsletter.url);
+                    uniqueNewsletters.push(newsletter);
+                } else {
+                    csvDuplicates++;
+                }
+            }
+            
+            newsletters = uniqueNewsletters;
+            
+            if (csvDuplicates > 0) {
+                console.log(`Removed ${csvDuplicates} duplicate URLs within CSV`);
+                uploadArea.innerHTML = `
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#B4FF39" stroke-width="2" style="margin-bottom: 16px;">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="15" y1="9" x2="9" y2="15"/>
+                        <line x1="9" y1="9" x2="15" y2="15"/>
+                    </svg>
+                    <h3>Removed ${csvDuplicates.toLocaleString()} duplicate URLs from CSV</h3>
+                    <p style="color: #888; margin-top: 8px;">Processing ${newsletters.length.toLocaleString()} unique newsletters...</p>
+                `;
+                await new Promise(r => setTimeout(r, 2000));
+            }
 
             // Save to Supabase
             try {
@@ -1012,7 +1042,9 @@
                 const dbCount = dbNewsletters.length;
                 const expectedTotal = existingUrls.size + newNewsletters.length;
                 
-                console.log(`Upload complete: ${savedCount} new added, ${skippedCount} skipped, ${dbCount} total in database`);
+                const expectedInDb = existingUrls.size + savedCount;
+                console.log(`Upload complete: ${savedCount} new inserted, ${skippedCount} skipped, expecting ${expectedInDb} total in database`);
+                console.log(`Database actually has: ${dbCount} records`);
                 
                 if (failedChunks.length > 0) {
                     const failedCount = failedChunks.reduce((sum, chunk) => sum + chunk.count, 0);
@@ -1020,18 +1052,49 @@
                         `Chunk ${c.start}-${c.end} (${c.count} records): ${c.error}`
                     ).join('\n');
                     
-                    console.error('Failed chunks:', errorDetails);
+                    console.error('FAILED CHUNKS:', errorDetails);
+                    
+                    uploadArea.innerHTML = `
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ff4444" stroke-width="2" style="margin-bottom: 16px;">
+                            <circle cx="12" cy="12" r="10"/>
+                            <line x1="15" y1="9" x2="9" y2="15"/>
+                            <line x1="9" y1="9" x2="15" y2="15"/>
+                        </svg>
+                        <h3>Upload completed with errors</h3>
+                        <p style="color: #ff4444; margin-top: 8px;">${failedChunks.length} chunks failed (${failedCount} records)</p>
+                        <p style="color: #888; margin-top: 4px;">Database has ${dbCount} records</p>
+                    `;
+                    
                     throw new Error(
-                        `Failed to save ${failedCount} newsletters (${failedChunks.length} chunks failed).\n\n` +
-                        `Database has ${dbCount} records.\n\n` +
-                        `Details:\n${errorDetails}`
+                        `UPLOAD ERRORS: ${failedChunks.length} chunks failed\n\n` +
+                        `Attempted: ${newNewsletters.length.toLocaleString()}\n` +
+                        `Failed: ${failedCount.toLocaleString()}\n` +
+                        `Database: ${dbCount.toLocaleString()} records\n\n` +
+                        `Errors:\n${errorDetails}`
                     );
                 }
                 
-                console.log('SUCCESS: All new newsletters saved!', {
-                    added: savedCount,
+                // Check if database count matches expected
+                if (Math.abs(dbCount - expectedInDb) > 10) {
+                    console.warn(`WARNING: Database count mismatch! Expected ${expectedInDb}, got ${dbCount}`);
+                    
+                    uploadArea.innerHTML = `
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ffa500" stroke-width="2" style="margin-bottom: 16px;">
+                            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                            <line x1="12" y1="9" x2="12" y2="13"/>
+                            <line x1="12" y1="17" x2="12.01" y2="17"/>
+                        </svg>
+                        <h3>Upload completed with discrepancies</h3>
+                        <p style="color: #ffa500; margin-top: 8px;">Expected ${expectedInDb.toLocaleString()}, database has ${dbCount.toLocaleString()}</p>
+                        <p style="color: #888; margin-top: 4px;">Some records may not have saved properly</p>
+                    `;
+                }
+                
+                console.log('SUCCESS: Upload completed', {
+                    attempted: newNewsletters.length,
+                    saved: savedCount,
                     skipped: skippedCount,
-                    total: dbCount
+                    dbTotal: dbCount
                 });
                 
             } catch (e) {
