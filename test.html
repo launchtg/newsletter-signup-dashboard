@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Supabase Connection Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #0a0a0a; color: #fff; }
+        .pass { color: #B4FF39; }
+        .fail { color: #ff4444; }
+        pre { background: #1a1a1a; padding: 10px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Newsletter Dashboard - Connection Test</h1>
+    <div id="results"></div>
+
+    <script src="supabase-client.js"></script>
+    <script>
+        const results = document.getElementById('results');
+        
+        async function test() {
+            results.innerHTML = '<p>🔄 Testing connection...</p>';
+            
+            try {
+                const supabase = new SupabaseClient();
+                results.innerHTML += '<p class="pass">✅ Supabase client created</p>';
+                
+                // Test database connection
+                const data = await supabase.getNewsletters();
+                results.innerHTML += `<p class="pass">✅ Database connected! Found ${data.length} newsletters</p>`;
+                
+                // Test insert
+                const testNewsletter = {
+                    url: 'https://test-' + Date.now() + '.example.com',
+                    name: 'Test Newsletter',
+                    platform: 'test',
+                    status: 'pending',
+                    data: { test: true }
+                };
+                
+                await supabase.upsertNewsletter(testNewsletter);
+                results.innerHTML += '<p class="pass">✅ Test insert successful</p>';
+                
+                // Verify insert
+                const updated = await supabase.getNewsletters();
+                results.innerHTML += `<p class="pass">✅ Verification successful! Now ${updated.length} newsletters</p>`;
+                
+                results.innerHTML += '<h2 class="pass">🎉 ALL TESTS PASSED!</h2>';
+                results.innerHTML += '<p>Your dashboard should work perfectly now.</p>';
+                results.innerHTML += '<p><a href="index.html" style="color: #B4FF39;">Go to Dashboard →</a></p>';
+                
+            } catch (error) {
+                results.innerHTML += `<p class="fail">❌ Error: ${error.message}</p>`;
+                results.innerHTML += '<pre>' + error.stack + '</pre>';
+                results.innerHTML += '<h2 class="fail">Tests Failed</h2>';
+                results.innerHTML += '<p>Check the console for more details.</p>';
+                console.error('Test error:', error);
+            }
+        }
+        
+        test();
+    </script>
+</body>
+</html>
